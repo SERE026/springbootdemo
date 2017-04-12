@@ -78,7 +78,7 @@ public class MyFreeMarkerView extends FreeMarkerView{
 	    if (!pf.exists()) {
 	        pf.createNewFile();
 	    }
-	    PDFUtil.exportPdf(htmlPath, htmlPath.replace(".html", ".pdf"));
+	    PDFUtil.createPdfForPath(htmlPath, htmlPath.replace(".html", ".pdf"),null);
 	    /* 将请求转发到生成的htm文件 */
 	    request.getRequestDispatcher(requestHTML).forward(request, response);
 	}
