@@ -1,6 +1,9 @@
 package com.first.util;
 
 
+import java.awt.Color;
+import java.awt.Graphics;
+import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -19,19 +22,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import javax.imageio.ImageIO;
 import javax.servlet.http.HttpServletResponse;
+import javax.swing.ImageIcon;
 
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.itextpdf.text.BadElementException;
 import com.itextpdf.text.Document;
 import com.itextpdf.text.DocumentException;
 import com.itextpdf.text.Font;
 import com.itextpdf.text.Image;
 import com.itextpdf.text.Rectangle;
 import com.itextpdf.text.pdf.AcroFields;
-import com.itextpdf.text.pdf.BaseFont;
 import com.itextpdf.text.pdf.PdfContentByte;
 import com.itextpdf.text.pdf.PdfGState;
 import com.itextpdf.text.pdf.PdfReader;
@@ -368,34 +373,51 @@ public class PDFUtil {
 
 		PdfStamper stamp = new PdfStamper(reader, new FileOutputStream(outPdfFile));
 		
-		int pageSize = reader.getNumberOfPages();
+		int pageSize = reader.getNumberOfPages();  //获取总页数
+		Rectangle rect = reader.getPageSizeWithRotation(1);  //获取第一页
+		float width = rect.getWidth();
+		float height = rect.getHeight();
 
 		Image img = Image.getInstance(markImagePath);// 插入水印
 
-		img.setAbsolutePosition(150, 100);
-
-		//for (int i = 1; i <= pageSize; i++) {
-			//PdfContentByte under = stamp.getUnderContent(i);
-			PdfContentByte over = stamp.getOverContent(1);
-			over.beginText();
-			//addImage(image, image_width, 0, 0, image_height, x, y) 
-			//content.addImage(image, 150, 0, 0, 150, 100, y);.
-			PdfGState gs1 = new PdfGState();
-			gs1.setFillOpacity(0.8f);
-			over.setGState(gs1);
-			Rectangle rect = reader.getPageSizeWithRotation(1);
-			//over.addImage(img);
-			over.addImage(img,150,0,0,150,170,200);
-			over.endText();
+		float img_height = 150; //图片高
+		float img_wide = 150; //图片宽
+		img.scaleAbsolute(img_height, img_wide); //设置图片大小
+		
+		//设置透明度
+		PdfGState gs1 = new PdfGState();
+		gs1.setFillOpacity(0.8f);
+		
+		Image[] imgs =  subImages(markImagePath,pageSize);//生成骑缝章切割图片
+		for (int i = 1; i <= pageSize; i++) {
+			PdfContentByte over = stamp.getOverContent(i);
+			if(i == 1){  //首页公章
+				over.beginText();
+				//addImage(image, image_width, 0, 0, image_height, x, y) 
+				over.setGState(gs1);
+				img.setAbsolutePosition(150, 200); //设置图片坐标
+				over.addImage(img);
+				over.endText();
+			}
+			if(pageSize == i){  //尾页公章
+				over.beginText();
+				over.setGState(gs1);
+				img.setAbsolutePosition(180, 610);
+				over.addImage(img);
+				//over.addImage(img,img_long,0,0,img_wide,180,670);
+				over.endText();
+			}
 			
-			rect = reader.getPageSizeWithRotation(pageSize);
-			over = stamp.getOverContent(pageSize);
+			//骑缝章
 			over.beginText();
 			over.setGState(gs1);
-			//over.addImage(img);
-			over.addImage(img,150,0,0,150,180,570);
+            Image imgBroken = imgs[i-1];//选择图片
+            //imgBroken.setAlignment(1);
+            //imgBroken.scaleAbsolute(150,150);//控制图片大小
+            imgBroken.setAbsolutePosition(width-imgBroken.getWidth(),height/2-imgBroken.getHeight()/2);//控制图片位置
+            over.addImage(imgBroken);
 			over.endText();
-		//}
+		}
 
 		stamp.close();// 关闭
 		reader.close();
@@ -407,6 +429,108 @@ public class PDFUtil {
 
 	}
 	
+	/**
+     * 切割图片
+     * @param imgPath  原始图片路径
+     * @param n 切割份数
+     * @return  itextPdf的Image[]
+     * @throws IOException
+     * @throws BadElementException
+     */
+    public static Image[] subImages(String imgPath,int n) throws IOException, BadElementException {
+        Image[] nImage = new Image[n];
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        
+        BufferedImage bufferedImage = scaleImage(imgPath,150);
+        
+        int h = bufferedImage.getHeight();
+        int w = bufferedImage.getWidth();
+
+        int sw = w/n;
+        for(int i=0;i<n;i++){
+            BufferedImage subImg;
+            if(i==n-1){//最后剩余部分
+                 subImg = bufferedImage.getSubimage(i * sw, 0, w-i*sw, h);
+            }else {//前n-1块均匀切
+                 subImg = bufferedImage.getSubimage(i * sw, 0, sw, h);
+            }
+
+            ImageIO.write(subImg,imgPath.substring(imgPath.lastIndexOf('.')+1),out);
+            nImage[i] = Image.getInstance(out.toByteArray());
+            out.flush();
+            out.reset();
+        }
+        return nImage;
+    }
+
+    /**
+     * 控制图片大小
+     * @param imgPath
+     * @return
+     */
+	private static BufferedImage scaleImage(String imgPath,int width) {
+		ImageIcon ii = new ImageIcon(imgPath);
+		java.awt.Image si = ii.getImage();
+		java.awt.Image resizedImage = null;
+
+		int iWidth = si.getWidth(null);
+		int iHeight = si.getHeight(null);
+
+		resizedImage = si.getScaledInstance(width, width*iHeight/iWidth, java.awt.Image.SCALE_SMOOTH);
+		
+
+		// This code ensures that all the pixels in the image are loaded.
+		java.awt.Image temp = new ImageIcon(resizedImage).getImage();
+
+		// Create the buffered image.
+		BufferedImage bufferedImage = new BufferedImage(temp.getWidth(null),
+				temp.getHeight(null), BufferedImage.TYPE_3BYTE_BGR);
+
+		// Copy image to buffered image.
+		Graphics g = bufferedImage.createGraphics();
+
+		// Clear background and paint the image.
+		g.setColor(Color.white);
+		g.fillRect(0, 0, temp.getWidth(null), temp.getHeight(null));
+		g.drawImage(temp, 0, 0, null);
+		g.dispose();
+		
+		return bufferedImage;
+	}
+    
+
+    /**
+     *  盖骑缝章
+     *
+     * @param infilePath    原PDF路径
+     * @param outFilePath    输出PDF路径
+     * @param picPath    章图片路径
+     * @throws IOException
+     * @throws DocumentException
+     */
+    public static void stamperCheckMarkPDF(String infilePath,String outFilePath,String picPath) throws IOException, DocumentException {
+        PdfReader reader = new PdfReader(infilePath);//选择需要印章的pdf
+        PdfStamper stamp = new PdfStamper(reader, new FileOutputStream(outFilePath));//加完印章后的pdf
+
+        Rectangle pageSize = reader.getPageSize(1);//获得第一页
+        float height = pageSize.getHeight();
+        float width  = pageSize.getWidth();
+
+        int nums = reader.getNumberOfPages();
+        Image[] nImage =  subImages(picPath,nums);//生成骑缝章切割图片
+
+
+        for(int n=1;n<=nums;n++){
+            PdfContentByte over = stamp.getOverContent(n);//设置在第几页打印印章
+            Image img = nImage[n-1];//选择图片
+//            img.setAlignment(1);
+//            img.scaleAbsolute(200,200);//控制图片大小
+            img.setAbsolutePosition(width-img.getWidth(),height/2-img.getHeight()/2);//控制图片位置
+            over.addImage(img);
+        }
+        stamp.close();
+    }
+    
 	/**
 	 * 删除文件
 	 * 
